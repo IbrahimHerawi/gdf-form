@@ -5,6 +5,5 @@ services:
     ports:
       - "${HOST_PORT:-3000}:3000"
     environment:
-      GOOGLE_SCRIPT_URL: ${GOOGLE_SCRIPT_URL:-}
-      GOOGLE_SCRIPT_SECRET: ${GOOGLE_SCRIPT_SECRET:-}
+      GDF_SIGNUP_URL: ${GDF_SIGNUP_URL:-}
     restart: unless-stopped

@@ -1,67 +1,66 @@
 # GDF Client Form
 
-A simple contact-details form for **Global Detergent Factory**. Clients enter their full name, email, company name and phone number; each submission is appended as a row in a Google Sheet.
+A simple contact-details form for **Global Detergent Factory**. Clients enter their full name, email, company name and phone number; each submission becomes one row in a Google Sheet.
 
-Built with Next.js. The browser posts to `/api/submit`, which validates the data and forwards it to a Google Apps Script web app bound to your sheet, so the script URL and secret are never exposed to visitors.
+Built with Next.js. The form posts straight from the visitor's browser to a Google Apps Script web app bound to the Sheet. There is no backend and nothing secret to manage: the only setting is the script's URL, which can add rows but cannot read the Sheet.
 
-## Secrets
+## Connect the Google Sheet
 
-Secrets are **not stored in this repo or typed into local files**. They live in two places only:
+Setup takes about five minutes and is done once.
 
-| Where                                 | Name                   | Value                                      |
-| ------------------------------------- | ---------------------- | ------------------------------------------ |
-| Vercel → Settings → Environment Variables | `GOOGLE_SCRIPT_URL`    | Apps Script web app URL (ends in `/exec`)  |
-| Vercel → Settings → Environment Variables | `GOOGLE_SCRIPT_SECRET` | A long random string                       |
-| Apps Script → Project Settings → Script Properties | `SHARED_SECRET` | The same random string                     |
+### 1. Create the Sheet and the script
 
-Both Vercel variables are required; without them the form returns "not configured". The Apps Script rejects any request whose secret doesn't match, so only your deployment can write to the sheet.
+1. Sign in to the company Google account that should own the leads, and create a new Google Sheet, for example **GDF clients**.
+2. In the Sheet, open **Extensions → Apps Script**.
+3. Delete the sample code and paste the whole of [`google-apps-script/Code.gs`](google-apps-script/Code.gs). Click **Save**.
 
-Generate a secret with either of:
+### 2. Publish it as a web app
+
+1. Click **Deploy → New deployment**, then the gear icon → **Web app**.
+2. Set **Execute as: Me** and **Who has access: Anyone**. "Anyone" lets visitors send the form without signing in. They cannot read the Sheet.
+3. Click **Deploy** and approve the permissions Google asks for. If Google says the app "hasn't been verified", that's expected for your own script: click **Advanced → Go to … (unsafe) → Allow**.
+4. Copy the **Web app URL**. It starts with `https://script.google.com/macros/s/` and ends with `/exec`.
+
+Opening that URL in a browser should show "GDF client form endpoint is running."
+
+### 3. Give the URL to the site
+
+Use either option:
+
+- **Vercel (recommended):** Project → **Settings → Environment Variables** → add `GDF_SIGNUP_URL` with the URL, then **Deployments → ⋯ → Redeploy**.
+- **In the code:** paste the URL into `pastedUrl` in [`lib/signup.config.ts`](lib/signup.config.ts), then commit and push.
+
+The environment variable wins when both are set. The build stops with a clear message if the value is not a web app URL. A common mistake is copying the script editor's address instead. While no URL is set, the build prints a warning and the form shows an error message.
+
+### 4. Test it
+
+Open the live site, submit a test entry, and check that the row appears in the **Leads** tab (columns: Submitted at, Full name, Email, Company, Phone). Delete the test row afterwards.
+
+### Changing the script later
+
+Edit the code, then use **Deploy → Manage deployments → Edit → Version: New version → Deploy**. This keeps the same URL, so the site does not need to change. Creating a *new* deployment gives a new URL.
+
+### Notes
+
+- Visitors' browsers cannot read the script's reply from another site. A request that reaches Google counts as sent, and a network failure shows the error message. This is why step 4 matters.
+- The script ignores bot submissions that fill the hidden `website` field. It also checks the required fields again and stores text so it cannot run as a spreadsheet formula (this also keeps `+966…` phone numbers intact).
+- Share the Sheet only with the people who follow up on leads.
+
+## Deploy to Vercel
+
+1. Push this repo to GitHub, go to **https://vercel.com/new** and import it. The framework preset is detected as **Next.js**; leave the other settings as they are.
+2. Expand **Environment Variables** and add `GDF_SIGNUP_URL` (or skip this if you pasted the URL into `lib/signup.config.ts`).
+3. Click **Deploy**, then test as in step 4 above.
+
+Every push to `main` redeploys automatically.
+
+## Run locally with Docker
 
 ```bash
-openssl rand -hex 32
+cp .env.example .env
 ```
 
-```powershell
-[guid]::NewGuid().ToString("N") + [guid]::NewGuid().ToString("N")
-```
-
-## 1. Set up the Google Sheet
-
-1. Create a Google Sheet (or open an existing one).
-2. Go to **Extensions → Apps Script**, delete the sample code and paste in [`google-apps-script/Code.gs`](google-apps-script/Code.gs).
-3. Click the **gear icon (Project Settings) → Script Properties → Add script property**: name `SHARED_SECRET`, value your generated secret.
-4. Click **Deploy → New deployment → Web app**:
-   - **Execute as:** Me
-   - **Who has access:** Anyone
-5. Authorize when prompted, then copy the **Web app URL**.
-
-Submissions go to a tab named `Leads`, created with headers on the first submission:
-
-| Timestamp | Full Name | Email | Company | Phone |
-| --------- | --------- | ----- | ------- | ----- |
-
-> If you edit `Code.gs` later, use **Deploy → Manage deployments → Edit → New version** so the URL stays the same.
-
-## 2. Deploy to Vercel
-
-1. Push this repo to GitHub and import it in Vercel (framework preset: **Next.js**, no other settings needed).
-2. Under **Settings → Environment Variables**, add `GOOGLE_SCRIPT_URL` and `GOOGLE_SCRIPT_SECRET`. Tick **Production**, **Preview** and **Development** so local runs can pull them too.
-3. Deploy. If you change a variable later, redeploy for it to take effect.
-
-## 3. Run locally with Docker
-
-Pull the variables from Vercel instead of writing them by hand (one-time `link`, then `pull` whenever they change):
-
-```bash
-npx vercel link
-```
-
-```bash
-npx vercel env pull .env --environment=development
-```
-
-Then start the container:
+Put the web app URL in `GDF_SIGNUP_URL` in `.env`, then:
 
 ```bash
 docker compose up --build -d
@@ -69,11 +68,9 @@ docker compose up --build -d
 
 Open http://localhost:3000 (set `HOST_PORT` in `.env` to use a different port). Stop it with `docker compose down`.
 
-`.env` is git-ignored and excluded from the Docker image; values are only passed to the container at runtime.
-
 ## Local development (without Docker)
 
-Requires Node.js 20+. Pull the env as above, then:
+Requires Node.js 20+.
 
 ```bash
 npm install
@@ -85,9 +82,10 @@ npm run dev
 ```
 app/
   page.tsx                    Page with logo + form
-  components/ContactForm.tsx  Client-side form, validation and states
-  api/submit/route.ts         Validates and forwards to Google Sheets
-lib/validation.ts             Shared validation (client + server)
+  components/ContactForm.tsx  Form, validation and states; posts to the Apps Script
+lib/
+  signup.config.ts            Where the form sends submissions (URL + check)
+  validation.ts               Field validation
 google-apps-script/Code.gs    Script to paste into the Google Sheet
 public/gdf-logo.png           Company logo
 ```

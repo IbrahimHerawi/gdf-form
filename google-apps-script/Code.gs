@@ -1,65 +1,60 @@
 /**
- * GDF client form -> Google Sheet
- *
- * Setup:
- * 1. Paste this into Extensions > Apps Script of the target Google Sheet.
- * 2. Project Settings (gear icon) > Script Properties > Add property:
- *      SHARED_SECRET = <same value as GOOGLE_SCRIPT_SECRET in Vercel>
- * 3. Deploy > New deployment > Web app (Execute as: Me, Access: Anyone).
- *    Put the web app URL in GOOGLE_SCRIPT_URL in Vercel.
+ * GDF client details form → this Google Sheet.
+ * Setup steps: README.md → "Connect the Google Sheet" in the gdf-form repository.
  */
-
-// Tab the rows are written to (created automatically if missing).
 const SHEET_NAME = 'Leads';
-
-const HEADERS = ['Timestamp', 'Full Name', 'Email', 'Company', 'Phone'];
+const HEADERS = ['Submitted at', 'Full name', 'Email', 'Company', 'Phone'];
 
 function doPost(e) {
+  const p = (e && e.parameter) || {};
+  // Bots fill the hidden "website" field; accept quietly and store nothing.
+  if (p.website) return json_({ ok: true });
+
+  const row = {
+    fullName: clean_(p.fullName, 120),
+    email: clean_(p.email, 160).toLowerCase(),
+    company: clean_(p.company, 160),
+    phone: clean_(p.phone, 30),
+  };
+  const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.email);
+  const phoneDigits = row.phone.replace(/\D/g, '').length;
+  if (!row.fullName || !row.company || !validEmail || phoneDigits < 7 || phoneDigits > 15) {
+    return json_({ ok: false, error: 'invalid' });
+  }
+
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
-    const data = JSON.parse(e.postData.contents);
-
-    // Kept in Script Properties so the secret never lives in code.
-    const secret = PropertiesService.getScriptProperties().getProperty('SHARED_SECRET');
-    if (!secret) {
-      return json({ ok: false, error: 'SHARED_SECRET script property is not set' });
-    }
-    if (data.secret !== secret) {
-      return json({ ok: false, error: 'Unauthorized' });
-    }
-
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName(SHEET_NAME) || ss.insertSheet(SHEET_NAME);
-
-    if (sheet.getLastRow() === 0) {
-      sheet.appendRow(HEADERS);
-      sheet.getRange(1, 1, 1, HEADERS.length).setFontWeight('bold');
-      sheet.setFrozenRows(1);
-    }
-
-    sheet.appendRow([
-      new Date(),
-      safe(data.fullName),
-      safe(data.email),
-      safe(data.company),
-      safe(data.phone),
-    ]);
-
-    return json({ ok: true });
-  } catch (err) {
-    return json({ ok: false, error: String(err) });
+    sheet_().appendRow([new Date(), row.fullName, row.email, row.company, row.phone]);
   } finally {
     lock.releaseLock();
   }
+  return json_({ ok: true });
 }
 
-// Keep values as plain text: stops formula injection and keeps "+966..." from being parsed as a number.
-function safe(value) {
-  const s = String(value == null ? '' : value).slice(0, 200);
-  return /^[=+\-@]/.test(s) ? "'" + s : s;
+function doGet() {
+  return ContentService.createTextOutput('GDF client form endpoint is running.');
 }
 
-function json(obj) {
-  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+function sheet_() {
+  const book = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = book.getSheetByName(SHEET_NAME);
+  if (!sheet) sheet = book.insertSheet(SHEET_NAME);
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(HEADERS);
+    sheet.setFrozenRows(1);
+    sheet.getRange(1, 1, 1, HEADERS.length).setFontWeight('bold');
+  }
+  return sheet;
+}
+
+// Trims, limits length and stops text being read as a spreadsheet formula
+// (this also keeps "+966..." phone numbers as text).
+function clean_(value, max) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim().slice(0, max);
+  return /^[=+\-@]/.test(text) ? "'" + text : text;
+}
+
+function json_(body) {
+  return ContentService.createTextOutput(JSON.stringify(body)).setMimeType(ContentService.MimeType.JSON);
 }

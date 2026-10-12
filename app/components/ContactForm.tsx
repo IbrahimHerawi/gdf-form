@@ -21,7 +21,7 @@ const FIELDS: {
   { name: "phone", label: "Phone number", type: "tel", autoComplete: "tel", placeholder: "+966 5X XXX XXXX", inputMode: "tel" },
 ];
 
-export default function ContactForm() {
+export default function ContactForm({ endpoint }: { endpoint: string }) {
   const [values, setValues] = useState<LeadInput>(EMPTY);
   const [honeypot, setHoneypot] = useState("");
   const [errors, setErrors] = useState<FieldErrors>({});
@@ -43,25 +43,27 @@ export default function ContactForm() {
       return;
     }
 
+    if (!endpoint) {
+      setStatus("error");
+      setMessage("The form isn't available right now. Please try again later.");
+      return;
+    }
+
+    // Posts straight to the Google Apps Script web app. Its reply is not readable
+    // cross-origin, so a delivered request counts as success; network failures show an error.
     setStatus("submitting");
     setMessage("");
     try {
-      const res = await fetch("/api/submit", {
+      await fetch(endpoint, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...values, website: honeypot }),
+        mode: "no-cors",
+        body: new URLSearchParams({ ...values, website: honeypot }),
+        signal: AbortSignal.timeout(20_000),
       });
-      const result = await res.json().catch(() => ({}));
-      if (res.ok && result.ok) {
-        setStatus("success");
-        return;
-      }
-      if (result.errors) setErrors(result.errors);
-      setStatus("error");
-      setMessage(result.error ?? "Please check the highlighted fields.");
+      setStatus("success");
     } catch {
       setStatus("error");
-      setMessage("Network error. Please check your connection and try again.");
+      setMessage("We couldn't send your details. Please check your connection and try again.");
     }
   }
 

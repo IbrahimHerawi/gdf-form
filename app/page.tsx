@@ -1,5 +1,18 @@
 import Image from "next/image";
+import { signupEndpoint } from "@/lib/signup.config";
 import ContactForm from "./components/ContactForm";
+
+// Read the sign-up URL per request so Docker can supply it at run time.
+export const dynamic = "force-dynamic";
+
+function endpoint() {
+  try {
+    return signupEndpoint();
+  } catch (err) {
+    console.error(err);
+    return "";
+  }
+}
 
 export default function Home() {
   return (
@@ -20,7 +33,7 @@ export default function Home() {
         <div className="card-body">
           <h1>Get in touch</h1>
           <p className="lead">Leave your details below and our team will reach out to you shortly.</p>
-          <ContactForm />
+          <ContactForm endpoint={endpoint()} />
         </div>
       </div>
 
